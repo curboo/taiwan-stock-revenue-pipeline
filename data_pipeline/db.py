@@ -104,7 +104,7 @@ class Database:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 execute_values(cur, sql, rows)
-                return cur.rowcount
+        return len(rows)  # execute_values 的 rowcount 不準確，改用實際筆數
 
     def mark_completed(self, stock_id: str, count: int) -> None:
         sql = """
