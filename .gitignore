@@ -30,3 +30,6 @@ download.log
 
 # Claude Code 設定
 .claude/
+
+# 含有憑證的本地執行腳本（不推送）
+data_pipeline/run_download.py
