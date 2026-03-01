@@ -10,27 +10,27 @@ from config import DBConfig
 
 logger = logging.getLogger(__name__)
 
-CREATE_TABLES_SQL = """
-CREATE TABLE IF NOT EXISTS monthly_revenue (
-    stock_id        VARCHAR(10)  NOT NULL,
-    date            DATE         NOT NULL,
-    revenue         BIGINT,
-    revenue_month   INTEGER,
-    revenue_year    INTEGER,
-    fetched_at      TIMESTAMPTZ  DEFAULT NOW(),
-    PRIMARY KEY (stock_id, date)
-);
-CREATE INDEX IF NOT EXISTS idx_mr_stock ON monthly_revenue (stock_id);
-CREATE INDEX IF NOT EXISTS idx_mr_date  ON monthly_revenue (date);
-
-CREATE TABLE IF NOT EXISTS download_progress (
-    stock_id      VARCHAR(10) PRIMARY KEY,
-    status        VARCHAR(20) NOT NULL DEFAULT 'pending',
-    records_count INTEGER DEFAULT 0,
-    error_msg     TEXT,
-    updated_at    TIMESTAMPTZ DEFAULT NOW()
-);
-"""
+# 使用 alpha_ 前綴避免與資料庫中既有的 monthly_revenue 表衝突
+CREATE_TABLES_SQLS = [
+    """CREATE TABLE IF NOT EXISTS alpha_monthly_revenue (
+        stock_id      VARCHAR(10)  NOT NULL,
+        date          DATE         NOT NULL,
+        revenue       BIGINT,
+        revenue_month INTEGER,
+        revenue_year  INTEGER,
+        fetched_at    TIMESTAMPTZ  DEFAULT NOW(),
+        PRIMARY KEY (stock_id, date)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_amr_stock ON alpha_monthly_revenue (stock_id)",
+    "CREATE INDEX IF NOT EXISTS idx_amr_date  ON alpha_monthly_revenue (date)",
+    """CREATE TABLE IF NOT EXISTS alpha_download_progress (
+        stock_id      VARCHAR(10) PRIMARY KEY,
+        status        VARCHAR(20) NOT NULL DEFAULT 'pending',
+        records_count INTEGER DEFAULT 0,
+        error_msg     TEXT,
+        updated_at    TIMESTAMPTZ DEFAULT NOW()
+    )""",
+]
 
 
 class Database:
@@ -58,20 +58,21 @@ class Database:
     def ensure_tables(self) -> None:
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(CREATE_TABLES_SQL)
+                for sql in CREATE_TABLES_SQLS:
+                    cur.execute(sql)
         logger.info("資料庫 Schema 已就緒")
 
     def init_progress(self, stock_ids: list[str]) -> None:
         """批次初始化進度（已存在的跳過）。"""
         rows = [(sid,) for sid in stock_ids]
-        sql = "INSERT INTO download_progress (stock_id) VALUES %s ON CONFLICT DO NOTHING"
+        sql = "INSERT INTO alpha_download_progress (stock_id) VALUES %s ON CONFLICT DO NOTHING"
         with self._conn() as conn:
             with conn.cursor() as cur:
                 execute_values(cur, sql, rows)
 
     def get_pending_stocks(self) -> list[str]:
         """取得尚未完成的股票清單（斷點續傳核心）。"""
-        sql = "SELECT stock_id FROM download_progress WHERE status != 'completed' ORDER BY stock_id"
+        sql = "SELECT stock_id FROM alpha_download_progress WHERE status != 'completed' ORDER BY stock_id"
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql)
@@ -92,7 +93,7 @@ class Database:
             for r in records
         ]
         sql = """
-            INSERT INTO monthly_revenue (stock_id, date, revenue, revenue_month, revenue_year)
+            INSERT INTO alpha_monthly_revenue (stock_id, date, revenue, revenue_month, revenue_year)
             VALUES %s
             ON CONFLICT (stock_id, date) DO UPDATE SET
                 revenue       = EXCLUDED.revenue,
@@ -107,7 +108,7 @@ class Database:
 
     def mark_completed(self, stock_id: str, count: int) -> None:
         sql = """
-            UPDATE download_progress
+            UPDATE alpha_download_progress
             SET status = 'completed', records_count = %s, updated_at = NOW()
             WHERE stock_id = %s
         """
@@ -117,7 +118,7 @@ class Database:
 
     def mark_failed(self, stock_id: str, error: str) -> None:
         sql = """
-            UPDATE download_progress
+            UPDATE alpha_download_progress
             SET status = 'failed', error_msg = %s, updated_at = NOW()
             WHERE stock_id = %s
         """
@@ -126,7 +127,7 @@ class Database:
                 cur.execute(sql, (error[:500], stock_id))
 
     def get_summary(self) -> dict:
-        sql = "SELECT status, COUNT(*) FROM download_progress GROUP BY status"
+        sql = "SELECT status, COUNT(*) FROM alpha_download_progress GROUP BY status"
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql)
