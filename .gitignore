@@ -27,3 +27,6 @@ download.log
 # IDE
 .vscode/
 .idea/
+
+# Claude Code 設定
+.claude/
