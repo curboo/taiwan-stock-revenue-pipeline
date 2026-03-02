@@ -35,12 +35,16 @@
 ## 資料庫現況
 
 <!-- AUTO-GENERATED -->
-| 資料表 | 說明 | 筆數 |
+| 資料表 | 說明 | 範圍 |
 |--------|------|------|
-| `alpha_monthly_revenue` | 全市場月營收（2015-01 ~ 2026-02） | 231,257 |
-| `alpha_download_progress` | 下載進度追蹤 | 1,934 支（全數完成）|
+| `alpha_monthly_revenue` | 全市場月營收 | 2015-01 ~ 2026-02（231,257 筆）|
+| `alpha_financial_statements` | 損益表（Income Statement） | 2018-01-01 ~ 2026-02-26 |
+| `alpha_balance_sheet` | 資產負債表（Balance Sheet） | 2018-01-01 ~ 2026-02-26 |
+| `alpha_cash_flows` | 現金流量表（Cash Flow Statement） | 2018-01-01 ~ 2026-02-26 |
+| `alpha_download_progress` | 月營收下載進度 | 1,934 支（全數完成）|
+| `alpha_financial_progress` | 財務三表下載進度 | 多維度追蹤（股票 × 資料集）|
 
-有效股票（≥ 81 筆月營收）：**1,712 支**，清單見 `stock_list_81up.txt`。
+有效股票（月營收≥ 81 筆）：**1,712 支**，清單見 `stock_list_81up.txt`。
 <!-- AUTO-GENERATED -->
 
 ## 資料來源
