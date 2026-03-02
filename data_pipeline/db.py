@@ -10,6 +10,23 @@ from config import DBConfig
 
 logger = logging.getLogger(__name__)
 
+DATASET_TABLE_MAP = {
+    "TaiwanStockFinancialStatements": "alpha_financial_statements",
+    "TaiwanStockBalanceSheet": "alpha_balance_sheet",
+    "TaiwanStockCashFlowsStatement": "alpha_cash_flows",
+}
+
+_FINANCIAL_TABLE_DDL = """
+    CREATE TABLE IF NOT EXISTS {table} (
+        stock_id     VARCHAR(10)  NOT NULL,
+        date         DATE         NOT NULL,
+        type         VARCHAR(100) NOT NULL,
+        value        NUMERIC,
+        origin_name  VARCHAR(200),
+        fetched_at   TIMESTAMPTZ  DEFAULT NOW(),
+        PRIMARY KEY (stock_id, date, type)
+    )"""
+
 # 使用 alpha_ 前綴避免與資料庫中既有的 monthly_revenue 表衝突
 CREATE_TABLES_SQLS = [
     """CREATE TABLE IF NOT EXISTS alpha_monthly_revenue (
@@ -29,6 +46,19 @@ CREATE_TABLES_SQLS = [
         records_count INTEGER DEFAULT 0,
         error_msg     TEXT,
         updated_at    TIMESTAMPTZ DEFAULT NOW()
+    )""",
+    # 財務三表
+    *[_FINANCIAL_TABLE_DDL.format(table=t) for t in DATASET_TABLE_MAP.values()],
+    *[f"CREATE INDEX IF NOT EXISTS idx_{t}_stock ON {t} (stock_id)"
+      for t in DATASET_TABLE_MAP.values()],
+    """CREATE TABLE IF NOT EXISTS alpha_financial_progress (
+        stock_id      VARCHAR(10)  NOT NULL,
+        dataset       VARCHAR(60)  NOT NULL,
+        status        VARCHAR(20)  NOT NULL DEFAULT 'pending',
+        records_count INTEGER      DEFAULT 0,
+        error_msg     TEXT,
+        updated_at    TIMESTAMPTZ  DEFAULT NOW(),
+        PRIMARY KEY (stock_id, dataset)
     )""",
 ]
 
@@ -132,3 +162,59 @@ class Database:
             with conn.cursor() as cur:
                 cur.execute(sql)
                 return {row[0]: row[1] for row in cur.fetchall()}
+
+    # ── 財務三表方法 ────────────────────────────────────────────────────────
+
+    def init_financial_progress(self, stock_ids: list[str], dataset: str) -> None:
+        rows = [(sid, dataset) for sid in stock_ids]
+        sql = """INSERT INTO alpha_financial_progress (stock_id, dataset)
+                 VALUES %s ON CONFLICT DO NOTHING"""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                execute_values(cur, sql, rows)
+
+    def get_pending_financial(self, dataset: str) -> list[str]:
+        sql = """SELECT stock_id FROM alpha_financial_progress
+                 WHERE dataset = %s AND status != 'completed'
+                 ORDER BY stock_id"""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (dataset,))
+                return [row[0] for row in cur.fetchall()]
+
+    def upsert_financial_data(self, table: str, records: list[dict]) -> int:
+        if not records:
+            return 0
+        rows = [
+            (r.get("stock_id"), r.get("date"), r.get("type"),
+             r.get("value"), r.get("origin_name"))
+            for r in records
+        ]
+        sql = f"""
+            INSERT INTO {table} (stock_id, date, type, value, origin_name)
+            VALUES %s
+            ON CONFLICT (stock_id, date, type) DO UPDATE SET
+                value       = EXCLUDED.value,
+                origin_name = EXCLUDED.origin_name,
+                fetched_at  = NOW()
+        """
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                execute_values(cur, sql, rows)
+        return len(rows)
+
+    def mark_financial_completed(self, stock_id: str, dataset: str, count: int) -> None:
+        sql = """UPDATE alpha_financial_progress
+                 SET status = 'completed', records_count = %s, updated_at = NOW()
+                 WHERE stock_id = %s AND dataset = %s"""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (count, stock_id, dataset))
+
+    def mark_financial_failed(self, stock_id: str, dataset: str, error: str) -> None:
+        sql = """UPDATE alpha_financial_progress
+                 SET status = 'failed', error_msg = %s, updated_at = NOW()
+                 WHERE stock_id = %s AND dataset = %s"""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (error[:500], stock_id, dataset))

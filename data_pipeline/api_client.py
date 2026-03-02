@@ -11,6 +11,12 @@ logger = logging.getLogger(__name__)
 FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
 DATASET = "TaiwanStockMonthRevenue"
 
+FINANCIAL_DATASETS = (
+    "TaiwanStockFinancialStatements",
+    "TaiwanStockBalanceSheet",
+    "TaiwanStockCashFlowsStatement",
+)
+
 
 class RateLimiter:
     """固定間隔限速：每次請求前確保距上次至少 interval 秒。"""
@@ -59,6 +65,41 @@ class FinMindClient:
                     self._retry.max_delay,
                 )
                 logger.warning("[%s] 第 %d 次失敗: %s，%.0f 秒後重試", stock_id, attempt, exc, delay)
+                if attempt == self._retry.max_retries:
+                    raise
+                time.sleep(delay)
+
+        return []
+
+    def fetch_financial_data(self, dataset: str, stock_id: str) -> list[dict]:
+        """下載單支股票財務報表（損益表/資產負債表/現金流量表），含限速與重試。"""
+        params = {
+            "dataset": dataset,
+            "data_id": stock_id,
+            "start_date": self._api.financial_start_date,
+            "end_date": self._api.end_date,
+        }
+        if self._api.token:
+            params["token"] = self._api.token
+
+        for attempt in range(1, self._retry.max_retries + 1):
+            self._limiter.wait()
+            try:
+                resp = self._session.get(FINMIND_URL, params=params, timeout=30)
+                resp.raise_for_status()
+                body = resp.json()
+                if body.get("msg") != "success":
+                    raise ValueError(f"API 錯誤: {body.get('msg')}")
+                return body.get("data", [])
+            except Exception as exc:
+                delay = min(
+                    self._retry.base_delay * (2 ** (attempt - 1)),
+                    self._retry.max_delay,
+                )
+                logger.warning(
+                    "[%s/%s] 第 %d 次失敗: %s，%.0f 秒後重試",
+                    dataset, stock_id, attempt, exc, delay,
+                )
                 if attempt == self._retry.max_retries:
                     raise
                 time.sleep(delay)

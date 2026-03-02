@@ -15,6 +15,7 @@ class DBConfig:
 class APIConfig:
     token: str = ""
     start_date: str = "2015-01-01"
+    financial_start_date: str = "2018-01-01"
     end_date: str = "2026-02-26"
     # 免費方案：600 次/小時，間隔 6.5 秒留餘量
     request_interval: float = 6.5
